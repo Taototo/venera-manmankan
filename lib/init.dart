@@ -37,9 +37,11 @@ extension _FutureInit<T> on Future<T> {
 Future<void> init() async {
   await App.init().wait();
   await SingleInstanceCookieJar.createInstance();
+  if (!App.isAndroid) {
+    await Rhttp.init().wait();
+  }
   try {
     var futures = [
-      Rhttp.init(),
       App.initComponents(),
       SAFTaskWorker().init().wait(),
       AppTranslation.init().wait(),
@@ -103,12 +105,14 @@ void _checkOldConfigs() {
             "raw.githubusercontent.com/Taototo/venera-comic-sources") ||
         sourceListUrl.contains(
             "github.com/Taototo/venera-comic-sources") ||
+        sourceListUrl.contains(
+            "cdn.jsdelivr.net/gh/Taototo/venera-comic-sources") ||
         sourceListUrl ==
             "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json" ||
         sourceListUrl ==
             "https://cdn.jsdelivr.net/gh/Taototo/venera-comic-sources@main/comic_index.json") {
       appdata.settings['comicSourceListUrl'] =
-          "https://cdn.jsdelivr.net/gh/Taototo/venera-comic-sources@c16221a/comic_index.json";
+          "https://raw.githubusercontent.com/Taototo/venera-comic-sources/c16221a/comic_index.json";
       appdata.saveData();
     }
   } else if (appdata.settings['comicSourceListUrl']
