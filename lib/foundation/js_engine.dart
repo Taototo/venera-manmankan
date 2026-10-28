@@ -223,6 +223,11 @@ class JsEngine with _JSEngineApi, JsUiApi, Init {
       }
       var dio = _dio;
       if (headers['http_client'] == "dart:io") {
+        // This is an internal transport hint used by sources. Do not forward
+        // it as a request header after selecting Dart's native HTTP client.
+        if (App.isAndroid) {
+          headers.remove('http_client');
+        }
         dio = Dio(BaseOptions(
           responseType: ResponseType.plain,
           validateStatus: (status) => true,

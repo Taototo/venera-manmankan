@@ -96,9 +96,23 @@ void _checkOldConfigs() {
     appdata.writeImplicitData();
   }
 
-  if (appdata.settings['comicSourceListUrl'].toString().contains("git.nyne.dev")) {
-    // migrate to jsdelivr cdn
-    appdata.settings['comicSourceListUrl'] = "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json";
+  if (App.isAndroid) {
+    final sourceListUrl = appdata.settings['comicSourceListUrl'].toString();
+    if (sourceListUrl.contains("git.nyne.dev") ||
+        sourceListUrl ==
+            "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json" ||
+        sourceListUrl ==
+            "https://cdn.jsdelivr.net/gh/Taototo/venera-comic-sources@main/comic_index.json") {
+      appdata.settings['comicSourceListUrl'] =
+          "https://cdn.jsdelivr.net/gh/Taototo/venera-comic-sources@c16221a/comic_index.json";
+      appdata.saveData();
+    }
+  } else if (appdata.settings['comicSourceListUrl']
+      .toString()
+      .contains("git.nyne.dev")) {
+    // Keep the original migration for non-Android builds.
+    appdata.settings['comicSourceListUrl'] =
+        "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json";
     appdata.saveData();
   }
 }

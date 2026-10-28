@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/services.dart';
 import 'package:rhttp/rhttp.dart' as rhttp;
 import 'package:venera/foundation/appdata.dart';
@@ -128,7 +130,9 @@ class MyLogInterceptor implements Interceptor {
 class AppDio with DioMixin {
   AppDio([BaseOptions? options]) {
     this.options = options ?? BaseOptions();
-    httpClientAdapter = RHttpAdapter();
+    // Some Android networks reject Rhttp's TLS/HTTP fingerprint.
+    // Keep the existing Rhttp transport on other platforms.
+    httpClientAdapter = App.isAndroid ? HybridHttpAdapter() : RHttpAdapter();
     if (App.isInitialized) {
       interceptors.add(CookieManagerSql(SingleInstanceCookieJar.instance!));
       interceptors.add(NetworkCacheManager());
@@ -277,5 +281,109 @@ class RHttpAdapter implements HttpClientAdapter {
         "Invalid Status Code 429: Too many requests. Please try again later.",
       _ => "Invalid Status Code $statusCode",
     };
+  }
+}
+
+/// Rhttp is the default client, but some sites reject its TLS/HTTP fingerprint.
+/// Retry connection-level failures with Dart's platform HTTP client so source
+/// requests can use the same network path as other native Flutter requests.
+class HybridHttpAdapter implements HttpClientAdapter {
+  final RHttpAdapter _rhttp = RHttpAdapter();
+  IOHttpClientAdapter? _dartAdapter;
+  String? _dartProxy;
+
+  @override
+  void close({bool force = false}) {
+    _rhttp.close(force: force);
+    _dartAdapter?.close(force: force);
+    _dartAdapter = null;
+  }
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final httpClient = _takeHttpClientHint(options.headers);
+    if (httpClient == 'dart:io') {
+      return _fetchWithDartHttp(options, requestStream, cancelFuture);
+    }
+    try {
+      return await _rhttp.fetch(options, requestStream, cancelFuture);
+    } catch (error) {
+      // A streamed request body cannot be replayed after Rhttp has consumed it.
+      if (requestStream != null || !_isRetryable(error)) {
+        rethrow;
+      }
+
+      Log.warning(
+        "Network",
+        "Rhttp failed; retrying with Dart HTTP client: "
+            "${options.method} ${options.uri}\n$error",
+      );
+      return _fetchWithDartHttp(options, null, cancelFuture);
+    }
+  }
+
+  Future<ResponseBody> _fetchWithDartHttp(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final proxy = await getProxy();
+    if (_dartAdapter == null || _dartProxy != proxy) {
+      _dartAdapter?.close(force: true);
+      _dartProxy = proxy;
+      _dartAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final client = HttpClient()
+            ..connectionTimeout = options.connectTimeout
+            ..idleTimeout = const Duration(seconds: 3)
+            ..findProxy = (uri) => proxy == null ? "DIRECT" : "PROXY $proxy";
+          if (appdata.settings['ignoreBadCertificate'] == true) {
+            client.badCertificateCallback = (certificate, host, port) => true;
+          }
+          return client;
+        },
+      );
+    }
+    return _dartAdapter!.fetch(options, requestStream, cancelFuture);
+  }
+
+  /// `http_client` is an internal source hint and must never be sent to a
+  /// website as an HTTP header.
+  static String? _takeHttpClientHint(Map<String, dynamic> headers) {
+    String? hint;
+    String? key;
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == 'http_client') {
+        key = entry.key;
+        hint = entry.value?.toString().toLowerCase();
+        break;
+      }
+    }
+    if (key != null) {
+      headers.remove(key);
+    }
+    return hint;
+  }
+
+  static bool _isRetryable(Object error) {
+    final text = error.toString().toLowerCase();
+    const markers = [
+      'connection reset',
+      'connection error',
+      'connection refused',
+      'connection terminated',
+      'timed out',
+      'timeout',
+      'handshake',
+      'dns',
+      'socket',
+      'network is unreachable',
+      'host is unreachable',
+    ];
+    return markers.any(text.contains);
   }
 }

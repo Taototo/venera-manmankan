@@ -367,5 +367,6 @@ async function processImage(image, cid, eid, page, sourceKey) {
 }
 ''';
 
-const _defaultSourceListUrl =
-    "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json";
+final _defaultSourceListUrl = Platform.isAndroid
+    ? "https://cdn.jsdelivr.net/gh/Taototo/venera-comic-sources@c16221a/comic_index.json"
+    : "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json";
