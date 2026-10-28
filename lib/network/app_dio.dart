@@ -339,8 +339,7 @@ class HybridHttpAdapter implements HttpClientAdapter {
       return await _fetchWithDartHttp(options, requestStream, cancelFuture);
     } catch (error) {
       if (requestStream == null) {
-        final alternateUri = _alternateSourceHost(options.uri);
-        if (alternateUri != null) {
+        for (final alternateUri in _alternateSourceHosts(options.uri)) {
           try {
             return await _fetchWithDartHttp(
               options.copyWith(
@@ -351,7 +350,12 @@ class HybridHttpAdapter implements HttpClientAdapter {
               null,
               cancelFuture,
             );
-          } catch (_) {}
+          } catch (alternateError) {
+            Log.warning(
+              "Network",
+              "Source host fallback failed: $alternateUri\n$alternateError",
+            );
+          }
         }
       }
       rethrow;
@@ -422,9 +426,14 @@ class HybridHttpAdapter implements HttpClientAdapter {
     return markers.any(text.contains);
   }
 
-  static Uri? _alternateSourceHost(Uri uri) {
+  static List<Uri> _alternateSourceHosts(Uri uri) {
     final segments = uri.pathSegments;
-    if (uri.host == 'cdn.jsdelivr.net' &&
+    const jsdelivrHosts = {
+      'cdn.jsdelivr.net',
+      'gcore.jsdelivr.net',
+      'testingcf.jsdelivr.net',
+    };
+    if (jsdelivrHosts.contains(uri.host) &&
         segments.length >= 4 &&
         segments[0] == 'gh') {
       final repositoryRef = segments[2];
@@ -434,11 +443,19 @@ class HybridHttpAdapter implements HttpClientAdapter {
         final repository = repositoryRef.substring(0, at);
         final ref = repositoryRef.substring(at + 1);
         final path = segments.sublist(3).join('/');
-        return Uri.https(
-          'raw.githubusercontent.com',
-          '/$owner/$repository/$ref/$path',
-          uri.queryParameters,
-        );
+        final result = <Uri>[
+          Uri.https(
+            'raw.githubusercontent.com',
+            '/$owner/$repository/$ref/$path',
+            uri.queryParameters,
+          ),
+        ];
+        for (final host in jsdelivrHosts) {
+          if (host != uri.host) {
+            result.add(Uri.https(host, uri.path, uri.queryParameters));
+          }
+        }
+        return result;
       }
     }
     if (uri.host == 'raw.githubusercontent.com' && segments.length >= 4) {
@@ -446,12 +463,15 @@ class HybridHttpAdapter implements HttpClientAdapter {
       final repository = segments[1];
       final ref = segments[2];
       final path = segments.sublist(3).join('/');
-      return Uri.https(
-        'cdn.jsdelivr.net',
-        '/gh/$owner/$repository@$ref/$path',
-        uri.queryParameters,
-      );
+      return [
+        for (final host in jsdelivrHosts)
+          Uri.https(
+            host,
+            '/gh/$owner/$repository@$ref/$path',
+            uri.queryParameters,
+          ),
+      ];
     }
-    return null;
+    return const [];
   }
 }

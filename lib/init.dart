@@ -100,19 +100,16 @@ void _checkOldConfigs() {
 
   if (App.isAndroid) {
     final sourceListUrl = appdata.settings['comicSourceListUrl'].toString();
-    if (sourceListUrl.contains("git.nyne.dev") ||
-        sourceListUrl.contains(
-            "raw.githubusercontent.com/Taototo/venera-comic-sources") ||
-        sourceListUrl.contains(
-            "github.com/Taototo/venera-comic-sources") ||
-        sourceListUrl.contains(
-            "cdn.jsdelivr.net/gh/Taototo/venera-comic-sources") ||
-        sourceListUrl ==
-            "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json" ||
-        sourceListUrl ==
-            "https://cdn.jsdelivr.net/gh/Taototo/venera-comic-sources@main/comic_index.json") {
-      appdata.settings['comicSourceListUrl'] =
-          "https://raw.githubusercontent.com/Taototo/venera-comic-sources/c16221a/comic_index.json";
+    const androidSourceListUrl =
+        "https://gcore.jsdelivr.net/gh/Taototo/venera-comic-sources@c16221a/comic_index.json";
+    if (sourceListUrl != androidSourceListUrl &&
+        (sourceListUrl.contains("git.nyne.dev") ||
+            sourceListUrl.contains("Taototo/venera-comic-sources") ||
+            sourceListUrl ==
+                "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json" ||
+            sourceListUrl ==
+                "https://cdn.jsdelivr.net/gh/Taototo/venera-comic-sources@main/comic_index.json")) {
+      appdata.settings['comicSourceListUrl'] = androidSourceListUrl;
       appdata.saveData();
     }
   } else if (appdata.settings['comicSourceListUrl']
