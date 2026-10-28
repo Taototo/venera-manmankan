@@ -30,7 +30,15 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugins.GeneratedPluginRegistrant
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.URL
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterFragmentActivity() {
     var volumeListen = VolumeListen()
@@ -40,6 +48,8 @@ class MainActivity : FlutterFragmentActivity() {
     private var storagePermissionRequest: ((Boolean) -> Unit)? = null
 
     private val nextLocalRequestCode = AtomicInteger()
+
+    private val httpExecutor: ExecutorService = Executors.newCachedThreadPool()
 
     private val sharedTexts = ArrayList<String>()
 
@@ -140,6 +150,35 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
 
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "venera/android_http"
+        ).setMethodCallHandler { call, res ->
+            if (call.method != "request") {
+                res.notImplemented()
+                return@setMethodCallHandler
+            }
+            val arguments = call.arguments as? Map<*, *>
+            if (arguments == null) {
+                res.error("INVALID_REQUEST", "Missing Android HTTP request", null)
+                return@setMethodCallHandler
+            }
+            httpExecutor.execute {
+                try {
+                    val response = executeAndroidHttp(arguments)
+                    runOnUiThread { res.success(response) }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        res.error(
+                            "ANDROID_HTTP_ERROR",
+                            e.message ?: e.toString(),
+                            null
+                        )
+                    }
+                }
+            }
+        }
+
         val channel = EventChannel(flutterEngine.dartExecutor.binaryMessenger, "venera/volume")
         channel.setStreamHandler(
             object : EventChannel.StreamHandler {
@@ -190,6 +229,132 @@ class MainActivity : FlutterFragmentActivity() {
                     textShareHandler = null
                 }
             })
+    }
+
+    override fun onDestroy() {
+        httpExecutor.shutdownNow()
+        super.onDestroy()
+    }
+
+    private fun executeAndroidHttp(arguments: Map<*, *>): Map<String, Any?> {
+        val rawUrl = arguments["url"]?.toString()
+            ?: throw IllegalArgumentException("Missing request URL")
+        val requestedMethod = arguments["method"]?.toString()?.uppercase(Locale.ROOT)
+            ?: "GET"
+        val body = toByteArray(arguments["body"])
+        val proxy = parseHttpProxy(arguments["proxy"]?.toString())
+        val connection = (if (proxy == null) {
+            URL(rawUrl).openConnection()
+        } else {
+            URL(rawUrl).openConnection(proxy)
+        }) as HttpURLConnection
+
+        connection.connectTimeout = timeoutValue(arguments["connectTimeoutMs"])
+        connection.readTimeout = timeoutValue(arguments["readTimeoutMs"])
+        connection.instanceFollowRedirects = true
+        connection.useCaches = false
+        connection.doInput = true
+
+        var method = requestedMethod
+        try {
+            connection.requestMethod = method
+        } catch (e: IOException) {
+            // HttpURLConnection does not expose PATCH on some Android
+            // versions. POST plus the standard override keeps such sources
+            // usable without changing their request body.
+            if (method == "PATCH") {
+                method = "POST"
+                connection.requestMethod = method
+                connection.setRequestProperty("X-HTTP-Method-Override", "PATCH")
+            } else {
+                throw e
+            }
+        }
+
+        val headers = arguments["headers"] as? Map<*, *> ?: emptyMap<Any?, Any?>()
+        for ((rawName, rawValue) in headers) {
+            val name = rawName?.toString() ?: continue
+            val lowerName = name.lowercase(Locale.ROOT)
+            // These values are owned by HttpURLConnection and cannot safely
+            // be supplied by an application request.
+            if (lowerName == "host" ||
+                lowerName == "content-length" ||
+                lowerName == "connection" ||
+                lowerName == "transfer-encoding"
+            ) {
+                continue
+            }
+            if (rawValue != null) {
+                connection.setRequestProperty(name, rawValue.toString())
+            }
+        }
+        if (headers.keys.none { it?.toString()?.lowercase(Locale.ROOT) == "accept-encoding" }) {
+            connection.setRequestProperty("Accept-Encoding", "identity")
+        }
+
+        if (body != null && method != "GET" && method != "HEAD") {
+            connection.doOutput = true
+            connection.setFixedLengthStreamingMode(body.size)
+            connection.outputStream.use { it.write(body) }
+        }
+
+        val status = connection.responseCode
+        val responseStream = try {
+            if (status >= 400) connection.errorStream else connection.inputStream
+        } catch (_: IOException) {
+            connection.errorStream
+        }
+        val responseBody = responseStream?.use { it.readBytes() } ?: ByteArray(0)
+        val responseHeaders = linkedMapOf<String, List<String>>()
+        for ((key, values) in connection.headerFields) {
+            if (key != null && values != null) {
+                responseHeaders[key.lowercase(Locale.ROOT)] = values
+            }
+        }
+        val statusMessage = connection.responseMessage
+        connection.disconnect()
+        return mapOf(
+            "status" to status,
+            "statusMessage" to statusMessage,
+            "headers" to responseHeaders,
+            "body" to responseBody,
+        )
+    }
+
+    private fun timeoutValue(value: Any?): Int {
+        val timeout = (value as? Number)?.toInt() ?: 15000
+        return timeout.coerceIn(1000, 120000)
+    }
+
+    private fun toByteArray(value: Any?): ByteArray? {
+        return when (value) {
+            null -> null
+            is ByteArray -> value
+            is List<*> -> ByteArray(value.size) { index ->
+                (value[index] as? Number)?.toInt()?.toByte() ?: 0
+            }
+            else -> null
+        }
+    }
+
+    private fun parseHttpProxy(value: String?): Proxy? {
+        if (value.isNullOrBlank()) return null
+        val trimmed = value.trim()
+        if (trimmed.equals("direct", true) ||
+            trimmed.equals("no proxy", true) ||
+            trimmed.equals("system", true)
+        ) {
+            return null
+        }
+        val normalized = if (trimmed.contains("://")) trimmed else "http://$trimmed"
+        val proxyUri = try {
+            Uri.parse(normalized)
+        } catch (_: Exception) {
+            return null
+        }
+        val host = proxyUri.host ?: return null
+        val port = if (proxyUri.port > 0) proxyUri.port else 80
+        return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
     }
 
     private fun getProxy(): String {

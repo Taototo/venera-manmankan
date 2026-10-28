@@ -7,6 +7,7 @@ import 'package:dio/io.dart';
 import 'package:flutter/services.dart';
 import 'package:rhttp/rhttp.dart' as rhttp;
 import 'package:venera/foundation/appdata.dart';
+import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/log.dart';
 import 'package:venera/network/cache.dart';
 import 'package:venera/network/proxy.dart';
@@ -16,6 +17,10 @@ import 'cloudflare.dart';
 import 'cookie_jar.dart';
 
 export 'package:dio/dio.dart';
+
+const _androidWebUserAgent =
+    'Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
 
 class MyLogInterceptor implements Interceptor {
   @override
@@ -289,12 +294,14 @@ class RHttpAdapter implements HttpClientAdapter {
 /// requests can use the same network path as other native Flutter requests.
 class HybridHttpAdapter implements HttpClientAdapter {
   final RHttpAdapter _rhttp = RHttpAdapter();
+  final AndroidHttpAdapter _android = AndroidHttpAdapter();
   IOHttpClientAdapter? _dartAdapter;
   String? _dartProxy;
 
   @override
   void close({bool force = false}) {
     _rhttp.close(force: force);
+    _android.close(force: force);
     _dartAdapter?.close(force: force);
     _dartAdapter = null;
   }
@@ -306,6 +313,40 @@ class HybridHttpAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     final httpClient = _takeHttpClientHint(options.headers);
+    if (App.isAndroid) {
+      try {
+        return await _android.fetch(options, requestStream, cancelFuture);
+      } catch (error) {
+        // Keep a Dart fallback for devices whose Android networking provider
+        // cannot handle a particular proxy or certificate configuration.
+        Log.warning(
+          "Network",
+          "Android native HTTP failed; retrying with Dart HTTP client: "
+              "${options.method} ${options.uri}\n$error",
+        );
+        if (requestStream == null) {
+          for (final alternateUri in _alternateSourceHosts(options.uri)) {
+            try {
+              return await _android.fetch(
+                options.copyWith(
+                  path: alternateUri.toString(),
+                  baseUrl: '',
+                  queryParameters: const <String, dynamic>{},
+                ),
+                null,
+                cancelFuture,
+              );
+            } catch (alternateError) {
+              Log.warning(
+                "Network",
+                "Android native source host fallback failed: "
+                    "$alternateUri\n$alternateError",
+              );
+            }
+          }
+        }
+      }
+    }
     if (App.isAndroid || httpClient == 'dart:io') {
       return _fetchWithDartHttpWithHostFallback(
         options,
@@ -473,5 +514,116 @@ class HybridHttpAdapter implements HttpClientAdapter {
       ];
     }
     return const [];
+  }
+}
+
+/// Uses Android's platform HTTPS implementation for normal Android requests.
+///
+/// Some mobile networks reject the TLS fingerprint emitted by Dart's IO
+/// client, while the same URL works in an Android browser. The platform
+/// implementation uses the Android security provider and therefore follows
+/// the same network path as the rest of the device. The response is buffered
+/// by the platform channel before being exposed as a Dio response stream.
+class AndroidHttpAdapter implements HttpClientAdapter {
+  static const MethodChannel _channel = MethodChannel('venera/android_http');
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final body = requestStream == null
+        ? null
+        : Uint8List.fromList(
+            await requestStream.fold<List<int>>(
+              <int>[],
+              (buffer, chunk) => buffer..addAll(chunk),
+            ),
+          );
+
+    final headers = <String, String>{};
+    for (final entry in options.headers.entries) {
+      final value = entry.value;
+      if (value is Iterable) {
+        headers[entry.key] = value.join(', ');
+      } else if (value != null) {
+        headers[entry.key] = value.toString();
+      }
+    }
+    String? userAgentKey;
+    for (final key in headers.keys) {
+      if (key.toLowerCase() == 'user-agent') {
+        userAgentKey = key;
+        break;
+      }
+    }
+    if (userAgentKey == null) {
+      headers['User-Agent'] = _androidWebUserAgent;
+    } else if (headers[userAgentKey] == webUA) {
+      // Source scripts historically use the desktop webUA. Android sites
+      // often apply different filtering to mobile browser and desktop clients.
+      headers[userAgentKey] = _androidWebUserAgent;
+    }
+    if (!headers.keys.any((key) => key.toLowerCase() == 'accept-encoding')) {
+      // HttpURLConnection does not transparently decode every compressed
+      // response. Asking for an identity response keeps Dio's byte stream
+      // consistent for both text and image requests.
+      headers['Accept-Encoding'] = 'identity';
+    }
+
+    final result = await _channel.invokeMapMethod<String, dynamic>('request', {
+      'method': options.method,
+      'url': options.uri.toString(),
+      'headers': headers,
+      'body': body,
+      'connectTimeoutMs': options.connectTimeout?.inMilliseconds ?? 15000,
+      'readTimeoutMs': options.receiveTimeout?.inMilliseconds ?? 15000,
+      'proxy': await getProxy(),
+    });
+    if (result == null) {
+      throw DioException.connectionError(
+        requestOptions: options,
+        reason: 'Android native HTTP returned no response',
+      );
+    }
+
+    final statusCode = (result['status'] as num?)?.toInt();
+    if (statusCode == null) {
+      throw DioException.connectionError(
+        requestOptions: options,
+        reason: result['error']?.toString() ?? 'Android native HTTP failed',
+      );
+    }
+
+    final responseHeaders = <String, List<String>>{};
+    final rawHeaders = result['headers'];
+    if (rawHeaders is Map) {
+      for (final entry in rawHeaders.entries) {
+        final key = entry.key?.toString();
+        if (key == null || key.isEmpty) continue;
+        final value = entry.value;
+        responseHeaders[key.toLowerCase()] = value is Iterable
+            ? value.map((item) => item.toString()).toList()
+            : [value.toString()];
+      }
+    }
+
+    final rawBody = result['body'];
+    final responseBytes = rawBody is Uint8List
+        ? rawBody
+        : rawBody is List<int>
+        ? Uint8List.fromList(rawBody)
+        : Uint8List(0);
+    return ResponseBody(
+      Stream<Uint8List>.value(responseBytes),
+      statusCode,
+      statusMessage: result['statusMessage']?.toString(),
+      isRedirect: statusCode >= 300 && statusCode < 400,
+      headers: responseHeaders,
+    );
   }
 }

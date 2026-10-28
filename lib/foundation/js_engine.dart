@@ -222,12 +222,10 @@ class JsEngine with _JSEngineApi, JsUiApi, Init {
         headers["User-Agent"] = webUA;
       }
       var dio = _dio;
-      if (headers['http_client'] == "dart:io") {
+      if (headers['http_client'] == "dart:io" && !App.isAndroid) {
         // This is an internal transport hint used by sources. Do not forward
         // it as a request header after selecting Dart's native HTTP client.
-        if (App.isAndroid) {
-          headers.remove('http_client');
-        }
+        headers.remove('http_client');
         dio = Dio(BaseOptions(
           responseType: ResponseType.plain,
           validateStatus: (status) => true,
@@ -242,6 +240,10 @@ class JsEngine with _JSEngineApi, JsUiApi, Init {
         dio.interceptors
             .add(CookieManagerSql(SingleInstanceCookieJar.instance!));
         dio.interceptors.add(LogInterceptor());
+      } else if (App.isAndroid) {
+        // Android sources that request dart:io still use AppDio so the
+        // platform HTTPS channel can match the browser network path.
+        headers.remove('http_client');
       }
       response = await dio!.request(req["url"],
           data: req["data"],
