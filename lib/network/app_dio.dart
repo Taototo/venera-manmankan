@@ -383,6 +383,9 @@ class HybridHttpAdapter implements HttpClientAdapter {
       'socket',
       'network is unreachable',
       'host is unreachable',
+      'has not been initialized',
+      'not been initialized',
+      'bad state',
     ];
     return markers.any(text.contains);
   }

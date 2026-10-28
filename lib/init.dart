@@ -99,6 +99,10 @@ void _checkOldConfigs() {
   if (App.isAndroid) {
     final sourceListUrl = appdata.settings['comicSourceListUrl'].toString();
     if (sourceListUrl.contains("git.nyne.dev") ||
+        sourceListUrl.contains(
+            "raw.githubusercontent.com/Taototo/venera-comic-sources") ||
+        sourceListUrl.contains(
+            "github.com/Taototo/venera-comic-sources") ||
         sourceListUrl ==
             "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json" ||
         sourceListUrl ==
