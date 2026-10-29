@@ -275,12 +275,14 @@ class MainActivity : FlutterFragmentActivity() {
         for ((rawName, rawValue) in headers) {
             val name = rawName?.toString() ?: continue
             val lowerName = name.lowercase(Locale.ROOT)
-            // These values are owned by HttpURLConnection and cannot safely
-            // be supplied by an application request.
+            // HttpURLConnection owns these headers. This bridge also returns
+            // raw bytes, so accept only identity encoding until it can decode
+            // compressed responses such as Brotli.
             if (lowerName == "host" ||
                 lowerName == "content-length" ||
                 lowerName == "connection" ||
-                lowerName == "transfer-encoding"
+                lowerName == "transfer-encoding" ||
+                lowerName == "accept-encoding"
             ) {
                 continue
             }
@@ -288,9 +290,7 @@ class MainActivity : FlutterFragmentActivity() {
                 connection.setRequestProperty(name, rawValue.toString())
             }
         }
-        if (headers.keys.none { it?.toString()?.lowercase(Locale.ROOT) == "accept-encoding" }) {
-            connection.setRequestProperty("Accept-Encoding", "identity")
-        }
+        connection.setRequestProperty("Accept-Encoding", "identity")
 
         if (body != null && method != "GET" && method != "HEAD") {
             connection.doOutput = true

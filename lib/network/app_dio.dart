@@ -201,6 +201,11 @@ class HybridHttpAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
+    if (App.isAndroid) {
+      options.headers.removeWhere(
+        (name, _) => name.toLowerCase() == 'accept-encoding',
+      );
+    }
     _takeHttpClientHint(options.headers);
     try {
       return await _android.fetch(options, requestStream, cancelFuture);
