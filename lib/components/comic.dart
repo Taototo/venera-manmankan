@@ -1005,9 +1005,8 @@ class ComicListState extends State<ComicList> {
   }
 
   void storeState() {
-    if (enablePageStorage) {
-      PageStorage.of(context).writeState(context, state);
-    }
+    if (!enablePageStorage) return;
+    PageStorage.maybeOf(context)?.writeState(context, state);
   }
 
   void refresh() {
@@ -1025,16 +1024,10 @@ class ComicListState extends State<ComicList> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_didRestorePageStorage) {
-      restoreState(PageStorage.of(context).readState(context));
+      restoreState(PageStorage.maybeOf(context)?.readState(context));
       _didRestorePageStorage = true;
     }
     widget.refreshHandlerCallback?.call(refresh);
-  }
-
-  @override
-  void deactivate() {
-    storeState();
-    super.deactivate();
   }
 
   void remove(Comic c) {
