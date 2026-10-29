@@ -18,11 +18,43 @@ import 'package:venera/utils/translations.dart';
 class ComicSourcePage extends StatelessWidget {
   const ComicSourcePage({super.key});
 
+  static Future<String> _resolveUpdateUrl(ComicSource source) async {
+    final fallback = source.url;
+    try {
+      final response = await AppDio().get<String>(
+        appdata.settings['comicSourceListUrl'].toString(),
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: const {'cache-time': 'no'},
+        ),
+      );
+      if (response.statusCode != 200 || response.data == null) return fallback;
+      final entries = jsonDecode(response.data!);
+      if (entries is! List) return fallback;
+      for (final entry in entries) {
+        if (entry is Map && entry['key'] == source.key) {
+          final url = entry['url'];
+          if (url is String && url.isURL) return url;
+        }
+      }
+    } catch (error) {
+      Log.warning(
+        'Comic source update',
+        'Unable to resolve the indexed update URL for ' +
+            source.key +
+            ': ' +
+            error.toString(),
+      );
+    }
+    return fallback;
+  }
+
   static Future<void> update(
     ComicSource source, [
     bool showLoading = true,
   ]) async {
-    if (!source.url.isURL) {
+    final updateUrl = await _resolveUpdateUrl(source);
+    if (!updateUrl.isURL) {
       if (showLoading) {
         App.rootContext.showMessage(message: "Invalid url config");
         return;
@@ -42,7 +74,7 @@ class ComicSourcePage extends StatelessWidget {
     }
     try {
       var res = await AppDio().get<String>(
-        source.url,
+        updateUrl,
         options: Options(
           responseType: ResponseType.plain,
           headers: {"cache-time": "no"},
@@ -168,33 +200,6 @@ class _BodyState extends State<_Body> {
   }
 
   void edit(ComicSource source) async {
-    if (App.isDesktop) {
-      try {
-        await Process.run("code", [source.filePath], runInShell: true);
-        await showDialog(
-          context: App.rootContext,
-          builder: (context) => AlertDialog(
-            title: const Text("Reload Configs"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("cancel"),
-              ),
-              TextButton(
-                onPressed: () async {
-                  await ComicSourceManager().reload();
-                  App.forceRebuild();
-                },
-                child: const Text("continue"),
-              ),
-            ],
-          ),
-        );
-        return;
-      } catch (e) {
-        //
-      }
-    }
     context.to(
       () => _EditFilePage(source.filePath, () async {
         await ComicSourceManager().reload();
@@ -899,7 +904,7 @@ class _SliverComicSourceState extends State<_SliverComicSource> {
   Iterable<Widget> buildSourceSettings() sync* {
     // Try to get dynamic settings first (for getters), fall back to cached settings
     var settingsMap = source.getSettingsDynamic() ?? source.settings;
-    
+
     if (settingsMap == null) {
       return;
     } else if (source.data['settings'] == null) {
@@ -1161,13 +1166,7 @@ class _LoginPageState extends State<_LoginPage> {
                 const SizedBox(height: 24),
                 if (widget.config.loginWebsite != null)
                   TextButton(
-                    onPressed: () {
-                      if (App.isLinux) {
-                        loginWithWebview2();
-                      } else {
-                        loginWithWebview();
-                      }
-                    },
+                    onPressed: loginWithWebview,
                     child: Text("Login with webview".tl),
                   ),
                 const SizedBox(height: 8),
@@ -1286,72 +1285,5 @@ class _LoginPageState extends State<_LoginPage> {
       widget.source.saveData();
       context.pop();
     }
-  }
-
-  // for linux
-  void loginWithWebview2() async {
-    if (!await DesktopWebview.isAvailable()) {
-      context.showMessage(message: "Webview is not available".tl);
-    }
-
-    var url = widget.config.loginWebsite!;
-    var title = '';
-    bool success = false;
-
-    void onClose() {
-      if (success) {
-        widget.source.data['account'] = 'ok';
-        widget.source.saveData();
-        context.pop();
-      }
-    }
-
-    void validate(DesktopWebview webview) async {
-      if (widget.config.checkLoginStatus != null &&
-          widget.config.checkLoginStatus!(url, title)) {
-        var cookiesMap = await webview.getCookies(url);
-        var cookies = <io.Cookie>[];
-        cookiesMap.forEach((key, value) {
-          cookies.add(io.Cookie(key, value));
-        });
-        SingleInstanceCookieJar.instance?.saveFromResponse(
-          Uri.parse(url),
-          cookies,
-        );
-        var localStorageJson = await webview.evaluateJavascript(
-          "JSON.stringify(window.localStorage);",
-        );
-        var localStorage = <String, dynamic>{};
-        try {
-          var decoded = jsonDecode(localStorageJson ?? '');
-          if (decoded is Map<String, dynamic>) {
-            localStorage = decoded;
-          }
-        } catch (e) {
-          Log.error("ComicSourcePage", "Failed to parse localStorage JSON\n$e");
-        }
-        widget.source.data['_localStorage'] = localStorage;
-        await widget.source.saveData();
-        success = true;
-        widget.config.onLoginWithWebviewSuccess?.call();
-        webview.close();
-        onClose();
-      }
-    }
-
-    var webview = DesktopWebview(
-      initialUrl: widget.config.loginWebsite!,
-      onTitleChange: (t, webview) {
-        title = t;
-        validate(webview);
-      },
-      onNavigation: (u, webview) {
-        url = u;
-        validate(webview);
-      },
-      onClose: onClose,
-    );
-
-    webview.open();
   }
 }

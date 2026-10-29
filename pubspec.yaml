@@ -13,7 +13,6 @@ dependencies:
     sdk: flutter
   path_provider: any
   intl: any
-  window_manager: ^0.5.1
   sqlite3: ^2.7.4
   sqlite3_flutter_libs: ^0.5.30
   flutter_qjs:
@@ -39,11 +38,6 @@ dependencies:
       path: packages/scrollable_positioned_list
   flutter_reorderable_grid_view: ^5.4.0
   uuid: ^4.5.1
-  desktop_webview_window:
-    git:
-      url: https://github.com/venera-app/flutter_desktop_webview
-      path: packages/desktop_webview_window
-      ref: 7801fc582ecf5a7351632887891ecf309a7b2583
   flutter_inappwebview:
     git:
       url: https://github.com/venera-app/flutter_inappwebview
@@ -58,7 +52,6 @@ dependencies:
     git:
       url: https://github.com/venera-app/lodepng_flutter
       ref: ac7d05dde32e8d728102a9ff66e6b55f05d94ba1
-  rhttp: ^0.15.1
   webdav_client:
     git:
       url: https://github.com/venera-app/webdav_client
@@ -89,10 +82,6 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-  flutter_to_arch: ^1.0.1
-  flutter_to_debian: 
-    git:
-      url: https://github.com/venera-app/flutter_to_debian.git
   archive: any
 
 flutter:
@@ -105,13 +94,3 @@ flutter:
     - assets/tags_tw.json
     - assets/opencc.txt
 # fonts:
-
-flutter_to_arch:
-  name: Venera
-  icon: debian/gui/venera.png
-  categories: Utility
-  keywords: Flutter;comic;images;
-  url: https://github.com/venera-app/venera
-  depends:
-    - gtk3
-    - webkit2gtk-4.1

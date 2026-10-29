@@ -1,16 +1,14 @@
 # Due to my limited time and energy, this project is no longer maintained. Feel free to fork it.
 # 由于本人精力有限, 此项目已停止维护, 欢迎fork
 
-# venera
+# 漫漫看
 [![flutter](https://img.shields.io/badge/flutter-3.41.4-blue)](https://flutter.dev/)
-[![License](https://img.shields.io/github/license/venera-app/venera)](https://github.com/venera-app/venera/blob/master/LICENSE)
-[![stars](https://img.shields.io/github/stars/venera-app/venera?style=flat)](https://github.com/venera-app/venera/stargazers)
+[![License](https://img.shields.io/github/license/Taototo/venera-manmankan)](https://github.com/Taototo/venera-manmankan/blob/master/LICENSE)
+[![stars](https://img.shields.io/github/stars/Taototo/venera-manmankan?style=flat)](https://github.com/Taototo/venera-manmankan/stargazers)
 
-[![Download](https://img.shields.io/github/v/release/venera-app/venera)](https://github.com/venera-app/venera/releases)
-[![AUR Version](https://img.shields.io/aur/version/venera-bin)](https://aur.archlinux.org/packages/venera-bin)
-[![F-Droid Version](https://img.shields.io/f-droid/v/com.github.wgh136.venera)](https://f-droid.org/packages/com.github.wgh136.venera/)
+[![Download](https://img.shields.io/github/v/release/Taototo/venera-manmankan)](https://github.com/Taototo/venera-manmankan/releases)
 
-A comic reader that support reading local and network comics.
+漫漫看是一款 Android 漫画阅读器，支持本地漫画和网络漫画源。
 
 ## Features
 - Read local comics
@@ -21,11 +19,11 @@ A comic reader that support reading local and network comics.
 - View comments, tags, and other information of comics if the source supports
 - Login to comment, rate, and other operations if the source supports
 
-## Build from source
+## Build for Android
 1. Clone the repository
-2. Install flutter, see [flutter.dev](https://flutter.dev/docs/get-started/install)
-3. Install rust, see [rustup.rs](https://rustup.rs/)
-4. Build for your platform: e.g. `flutter build apk`
+2. Install Flutter 3.41.4 and Rust
+3. Run `flutter pub get`
+4. Run `flutter build apk --release`
 
 ## Create a new comic source
 See [Comic Source](doc/comic_source.md)

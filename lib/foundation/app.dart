@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -13,23 +12,22 @@ export "widget_utils.dart";
 export "context.dart";
 
 class _App {
-  final name = Platform.isAndroid ? "漫漫看" : "venera";
-  final version = Platform.isAndroid ? "1.6.4" : "1.6.3";
+  final name = "漫漫看";
+  final version = "1.6.4";
 
-  bool get isAndroid => Platform.isAndroid;
+  bool get isAndroid => true;
 
-  bool get isIOS => Platform.isIOS;
+  bool get isIOS => false;
 
-  bool get isWindows => Platform.isWindows;
+  bool get isWindows => false;
 
-  bool get isLinux => Platform.isLinux;
+  bool get isLinux => false;
 
-  bool get isMacOS => Platform.isMacOS;
+  bool get isMacOS => false;
 
-  bool get isDesktop =>
-      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  bool get isDesktop => false;
 
-  bool get isMobile => Platform.isAndroid || Platform.isIOS;
+  bool get isMobile => true;
 
   // Whether the app has been initialized.
   // If current Isolate is main Isolate, this value is always true.

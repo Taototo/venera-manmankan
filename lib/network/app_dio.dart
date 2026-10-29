@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/services.dart';
-import 'package:rhttp/rhttp.dart' as rhttp;
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/consts.dart';
 import 'package:venera/foundation/log.dart';
@@ -25,32 +24,42 @@ const _androidWebUserAgent =
 class MyLogInterceptor implements Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    Log.error("Network",
-        "${err.requestOptions.method} ${err.requestOptions.path}\n$err\n${err.response?.data.toString()}");
+    Log.error(
+      "Network",
+      "${err.requestOptions.method} ${err.requestOptions.path}\n$err\n${err.response?.data.toString()}",
+    );
     switch (err.type) {
       case DioExceptionType.badResponse:
         var statusCode = err.response?.statusCode;
         if (statusCode != null) {
           err = err.copyWith(
-              message: "Invalid Status Code: $statusCode. "
-                  "${_getStatusCodeInfo(statusCode)}");
+            message:
+                "Invalid Status Code: $statusCode. "
+                "${_getStatusCodeInfo(statusCode)}",
+          );
         }
       case DioExceptionType.connectionTimeout:
         err = err.copyWith(message: "Connection Timeout");
       case DioExceptionType.receiveTimeout:
         err = err.copyWith(
-            message: "Receive Timeout: "
-                "This indicates that the server is too busy to respond");
+          message:
+              "Receive Timeout: "
+              "This indicates that the server is too busy to respond",
+        );
       case DioExceptionType.unknown:
         if (err.toString().contains("Connection terminated during handshake")) {
           err = err.copyWith(
-              message: "Connection terminated during handshake: "
-                  "This may be caused by the firewall blocking the connection "
-                  "or your requests are too frequent.");
+            message:
+                "Connection terminated during handshake: "
+                "This may be caused by the firewall blocking the connection "
+                "or your requests are too frequent.",
+          );
         } else if (err.toString().contains("Connection reset by peer")) {
           err = err.copyWith(
-              message: "Connection reset by peer: "
-                  "The error is unrelated to app, please check your network.");
+            message:
+                "Connection reset by peer: "
+                "The error is unrelated to app, please check your network.",
+          );
         }
       default:
         {}
@@ -77,9 +86,15 @@ class MyLogInterceptor implements Interceptor {
 
   @override
   void onResponse(
-      Response<dynamic> response, ResponseInterceptorHandler handler) {
-    var headers = response.headers.map.map((key, value) => MapEntry(
-        key.toLowerCase(), value.length == 1 ? value.first : value.toString()));
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
+    var headers = response.headers.map.map(
+      (key, value) => MapEntry(
+        key.toLowerCase(),
+        value.length == 1 ? value.first : value.toString(),
+      ),
+    );
     headers.remove("cookie");
     String content;
     if (response.data is List<int>) {
@@ -92,12 +107,13 @@ class MyLogInterceptor implements Interceptor {
       content = response.data.toString();
     }
     Log.addLog(
-        (response.statusCode != null && response.statusCode! < 400)
-            ? LogLevel.info
-            : LogLevel.error,
-        "Network",
-        "Response ${response.realUri.toString()} ${response.statusCode}\n"
-            "headers:\n$headers\n$content");
+      (response.statusCode != null && response.statusCode! < 400)
+          ? LogLevel.info
+          : LogLevel.error,
+      "Network",
+      "Response ${response.realUri.toString()} ${response.statusCode}\n"
+          "headers:\n$headers\n$content",
+    );
     handler.next(response);
   }
 
@@ -106,24 +122,10 @@ class MyLogInterceptor implements Interceptor {
     const String headerMask = "********";
     const String dataMask = "****** DATA_PROTECTED ******";
     Log.info(
-        "Network",
-        "${options.method} ${options.uri}\n"
-            "headers:\n${
-              options.extra.containsKey("maskHeadersInLog")
-                ? options.headers.map((key, value) =>
-                  MapEntry(
-                    key,
-                    options.extra["maskHeadersInLog"].contains(key)
-                      ? headerMask
-                      : value
-                  ))
-                : options.headers
-            }\n"
-            "data:\n${
-              options.extra["maskDataInLog"] == true
-                ? dataMask
-                : options.data
-            }"
+      "Network",
+      "${options.method} ${options.uri}\n"
+          "headers:\n${options.extra.containsKey("maskHeadersInLog") ? options.headers.map((key, value) => MapEntry(key, options.extra["maskHeadersInLog"].contains(key) ? headerMask : value)) : options.headers}\n"
+          "data:\n${options.extra["maskDataInLog"] == true ? dataMask : options.data}",
     );
     options.connectTimeout = const Duration(seconds: 15);
     options.receiveTimeout = const Duration(seconds: 15);
@@ -135,9 +137,7 @@ class MyLogInterceptor implements Interceptor {
 class AppDio with DioMixin {
   AppDio([BaseOptions? options]) {
     this.options = options ?? BaseOptions();
-    // Some Android networks reject Rhttp's TLS/HTTP fingerprint.
-    // Keep the existing Rhttp transport on other platforms.
-    httpClientAdapter = App.isAndroid ? HybridHttpAdapter() : RHttpAdapter();
+    httpClientAdapter = HybridHttpAdapter();
     if (App.isInitialized) {
       interceptors.add(CookieManagerSql(SingleInstanceCookieJar.instance!));
       interceptors.add(NetworkCacheManager());
@@ -183,124 +183,13 @@ class AppDio with DioMixin {
   }
 }
 
-class RHttpAdapter implements HttpClientAdapter {
-  Future<rhttp.ClientSettings> get settings async {
-    var proxy = await getProxy();
-
-    return rhttp.ClientSettings(
-      proxySettings: proxy == null
-          ? const rhttp.ProxySettings.noProxy()
-          : rhttp.ProxySettings.proxy(proxy),
-      redirectSettings: const rhttp.RedirectSettings.limited(5),
-      timeoutSettings: const rhttp.TimeoutSettings(
-        connectTimeout: Duration(seconds: 15),
-        keepAliveTimeout: Duration(seconds: 60),
-        keepAlivePing: Duration(seconds: 30),
-      ),
-      throwOnStatusCode: false,
-      dnsSettings: rhttp.DnsSettings.static(overrides: _getOverrides()),
-      tlsSettings: rhttp.TlsSettings(
-        sni: appdata.settings['sni'] != false,
-        verifyCertificates: appdata.settings['ignoreBadCertificate'] != true,
-      ),
-    );
-  }
-
-  static Map<String, List<String>> _getOverrides() {
-    if (!appdata.settings['enableDnsOverrides'] == true) {
-      return {};
-    }
-    var config = appdata.settings["dnsOverrides"];
-    var result = <String, List<String>>{};
-    if (config is Map) {
-      for (var entry in config.entries) {
-        if (entry.key is String && entry.value is String) {
-          result[entry.key] = [entry.value];
-        }
-      }
-    }
-    return result;
-  }
-
-  @override
-  void close({bool force = false}) {}
-
-  @override
-  Future<ResponseBody> fetch(
-    RequestOptions options,
-    Stream<Uint8List>? requestStream,
-    Future<void>? cancelFuture,
-  ) async {
-    if (options.headers['User-Agent'] == null &&
-        options.headers['user-agent'] == null) {
-      options.headers['User-Agent'] = "venera/v${App.version}";
-    }
-
-    var res = await rhttp.Rhttp.request(
-      method: rhttp.HttpMethod(options.method),
-      url: options.uri.toString(),
-      settings: await settings,
-      expectBody: rhttp.HttpExpectBody.stream,
-      body: requestStream == null ? null : rhttp.HttpBody.stream(requestStream),
-      headers: rhttp.HttpHeaders.rawMap(
-        Map.fromEntries(
-          options.headers.entries.map(
-            (e) => MapEntry(e.key, e.value.toString().trim()),
-          ),
-        ),
-      ),
-    );
-    if (res is! rhttp.HttpStreamResponse) {
-      throw Exception("Invalid response type: ${res.runtimeType}");
-    }
-    var headers = <String, List<String>>{};
-    for (var entry in res.headers) {
-      var key = entry.$1.toLowerCase();
-      headers[key] ??= [];
-      headers[key]!.add(entry.$2);
-    }
-    return ResponseBody(
-      res.body,
-      res.statusCode,
-      statusMessage: _getStatusMessage(res.statusCode),
-      isRedirect: false,
-      headers: headers,
-    );
-  }
-
-  static String _getStatusMessage(int statusCode) {
-    return switch (statusCode) {
-      200 => "OK",
-      201 => "Created",
-      202 => "Accepted",
-      204 => "No Content",
-      206 => "Partial Content",
-      301 => "Moved Permanently",
-      302 => "Found",
-      400 => "Invalid Status Code 400: The Request is invalid.",
-      401 => "Invalid Status Code 401: The Request is unauthorized.",
-      403 =>
-        "Invalid Status Code 403: No permission to access the resource. Check your account or network.",
-      404 => "Invalid Status Code 404: Not found.",
-      429 =>
-        "Invalid Status Code 429: Too many requests. Please try again later.",
-      _ => "Invalid Status Code $statusCode",
-    };
-  }
-}
-
-/// Rhttp is the default client, but some sites reject its TLS/HTTP fingerprint.
-/// Retry connection-level failures with Dart's platform HTTP client so source
-/// requests can use the same network path as other native Flutter requests.
 class HybridHttpAdapter implements HttpClientAdapter {
-  final RHttpAdapter _rhttp = RHttpAdapter();
   final AndroidHttpAdapter _android = AndroidHttpAdapter();
   IOHttpClientAdapter? _dartAdapter;
   String? _dartProxy;
 
   @override
   void close({bool force = false}) {
-    _rhttp.close(force: force);
     _android.close(force: force);
     _dartAdapter?.close(force: force);
     _dartAdapter = null;
@@ -312,63 +201,37 @@ class HybridHttpAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
-    final httpClient = _takeHttpClientHint(options.headers);
-    if (App.isAndroid) {
-      try {
-        return await _android.fetch(options, requestStream, cancelFuture);
-      } catch (error) {
-        // Keep a Dart fallback for devices whose Android networking provider
-        // cannot handle a particular proxy or certificate configuration.
-        Log.warning(
-          "Network",
-          "Android native HTTP failed; retrying with Dart HTTP client: "
-              "${options.method} ${options.uri}\n$error",
-        );
-        if (requestStream == null) {
-          for (final alternateUri in _alternateSourceHosts(options.uri)) {
-            try {
-              return await _android.fetch(
-                options.copyWith(
-                  path: alternateUri.toString(),
-                  baseUrl: '',
-                  queryParameters: const <String, dynamic>{},
-                ),
-                null,
-                cancelFuture,
-              );
-            } catch (alternateError) {
-              Log.warning(
-                "Network",
-                "Android native source host fallback failed: "
-                    "$alternateUri\n$alternateError",
-              );
-            }
-          }
+    _takeHttpClientHint(options.headers);
+    try {
+      return await _android.fetch(options, requestStream, cancelFuture);
+    } catch (error) {
+      if (requestStream != null) rethrow;
+      Log.warning(
+        "Network",
+        "Android native HTTP failed; retrying with Dart HTTP client: "
+        "${options.method} ${options.uri}\n$error",
+      );
+      for (final alternateUri in _alternateSourceHosts(options.uri)) {
+        try {
+          return await _android.fetch(
+            options.copyWith(
+              path: alternateUri.toString(),
+              baseUrl: '',
+              queryParameters: const <String, dynamic>{},
+            ),
+            null,
+            cancelFuture,
+          );
+        } catch (alternateError) {
+          Log.warning(
+            "Network",
+            "Android native source host fallback failed: "
+            "$alternateUri\n$alternateError",
+          );
         }
       }
     }
-    if (App.isAndroid || httpClient == 'dart:io') {
-      return _fetchWithDartHttpWithHostFallback(
-        options,
-        requestStream,
-        cancelFuture,
-      );
-    }
-    try {
-      return await _rhttp.fetch(options, requestStream, cancelFuture);
-    } catch (error) {
-      // A streamed request body cannot be replayed after Rhttp has consumed it.
-      if (requestStream != null || !_isRetryable(error)) {
-        rethrow;
-      }
-
-      Log.warning(
-        "Network",
-        "Rhttp failed; retrying with Dart HTTP client: "
-            "${options.method} ${options.uri}\n$error",
-      );
-      return _fetchWithDartHttp(options, null, cancelFuture);
-    }
+    return _fetchWithDartHttpWithHostFallback(options, null, cancelFuture);
   }
 
   Future<ResponseBody> _fetchWithDartHttpWithHostFallback(
@@ -444,27 +307,6 @@ class HybridHttpAdapter implements HttpClientAdapter {
       headers.remove(key);
     }
     return hint;
-  }
-
-  static bool _isRetryable(Object error) {
-    final text = error.toString().toLowerCase();
-    const markers = [
-      'connection reset',
-      'connection error',
-      'connection refused',
-      'connection terminated',
-      'timed out',
-      'timeout',
-      'handshake',
-      'dns',
-      'socket',
-      'network is unreachable',
-      'host is unreachable',
-      'has not been initialized',
-      'not been initialized',
-      'bad state',
-    ];
-    return markers.any(text.contains);
   }
 
   static List<Uri> _alternateSourceHosts(Uri uri) {

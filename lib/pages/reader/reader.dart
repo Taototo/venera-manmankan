@@ -16,7 +16,6 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:venera/components/components.dart';
 import 'package:venera/components/custom_slider.dart';
 import 'package:venera/components/rich_comment_content.dart';
-import 'package:venera/components/window_frame.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/appdata.dart';
 import 'package:venera/foundation/cache_manager.dart';
@@ -41,7 +40,6 @@ import 'package:venera/utils/io.dart';
 import 'package:venera/utils/tags_translation.dart';
 import 'package:venera/utils/translations.dart';
 import 'package:venera/utils/volume.dart';
-import 'package:window_manager/window_manager.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
@@ -415,7 +413,7 @@ abstract mixin class _ImagePerPageHandler {
   late int _lastImagesPerPage;
 
   late bool _lastOrientation;
-  
+
   /// Track if we were on the chapter comments page before orientation change
   bool _wasOnCommentsPage = false;
 
@@ -430,13 +428,13 @@ abstract mixin class _ImagePerPageHandler {
   String get cid;
 
   ComicType get type;
-  
+
   /// Whether the current page is the chapter comments page
   bool get isOnChapterCommentsPage;
-  
+
   /// Get the max page (excluding comments page)
   int get maxPage;
-  
+
   /// Get images list for calculating maxPage
   List<String>? get images;
 
@@ -478,7 +476,7 @@ abstract mixin class _ImagePerPageHandler {
           1;
     }
   }
-  
+
   /// Calculate maxPage with a specific imagesPerPage value
   int _calcMaxPage(int imagesPerPageValue) {
     if (images == null) return 1;
@@ -498,7 +496,7 @@ abstract mixin class _ImagePerPageHandler {
       // if we were on the comments page before the orientation change
       int oldMaxPage = _calcMaxPage(_lastImagesPerPage);
       _wasOnCommentsPage = page > oldMaxPage;
-      
+
       _adjustPageForImagesPerPageChange(
         _lastImagesPerPage,
         currentImagesPerPage,
@@ -537,7 +535,7 @@ abstract mixin class _ImagePerPageHandler {
 
     // Clamp to valid range (1 to maxPage)
     newPage = newPage.clamp(1, maxPage);
-    
+
     // If we were on the comments page, stay on the comments page
     if (_wasOnCommentsPage) {
       page = maxPage + 1;
@@ -729,41 +727,13 @@ abstract mixin class _ReaderLocation {
 }
 
 mixin class _ReaderWindow {
-  bool isFullscreen = false;
+  bool get isFullscreen => false;
 
-  late WindowFrameController windowFrame;
+  void initReaderWindow() {}
 
-  bool _isInit = false;
+  Future<void> fullscreen() async {}
 
-  void initReaderWindow() {
-    if (!App.isDesktop || _isInit) return;
-    windowFrame = WindowFrame.of(App.rootContext);
-    windowFrame.addCloseListener(onWindowClose);
-    _isInit = true;
-  }
-
-  void fullscreen() async {
-    if (!App.isDesktop) return;
-    await windowManager.hide();
-    await windowManager.setFullScreen(!isFullscreen);
-    await windowManager.show();
-    isFullscreen = !isFullscreen;
-    WindowFrame.of(App.rootContext).setWindowFrame(!isFullscreen);
-  }
-
-  bool onWindowClose() {
-    if (Navigator.of(App.rootContext).canPop()) {
-      Navigator.of(App.rootContext).pop();
-      return false;
-    } else {
-      return true;
-    }
-  }
-
-  void disposeReaderWindow() {
-    if (!App.isDesktop) return;
-    windowFrame.removeCloseListener(onWindowClose);
-  }
+  void disposeReaderWindow() {}
 }
 
 enum ReaderMode {

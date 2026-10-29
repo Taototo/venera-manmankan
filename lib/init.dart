@@ -1,10 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:display_mode/display_mode.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_saf/flutter_saf.dart';
-import 'package:rhttp/rhttp.dart';
 import 'package:venera/foundation/app.dart';
 import 'package:venera/foundation/cache_manager.dart';
 import 'package:venera/foundation/comic_source/comic_source.dart';
@@ -37,9 +36,6 @@ extension _FutureInit<T> on Future<T> {
 Future<void> init() async {
   await App.init().wait();
   await SingleInstanceCookieJar.createInstance();
-  if (!App.isAndroid) {
-    await Rhttp.init().wait();
-  }
   try {
     var futures = [
       App.initComponents(),
@@ -55,35 +51,29 @@ Future<void> init() async {
     Log.error("init", "$e\n$s");
   }
   CacheManager().setLimitSize(appdata.settings['cacheSize']);
-  _checkOldConfigs();
+  await _checkOldConfigs();
   if (App.isAndroid) {
     handleLinks();
     handleTextShare();
     try {
       await FlutterDisplayMode.setHighRefreshRate();
-    } catch(e) {
+    } catch (e) {
       Log.error("Display Mode", "Failed to set high refresh rate: $e");
     }
   }
   FlutterError.onError = (details) {
     Log.error("Unhandled Exception", "${details.exception}\n${details.stack}");
   };
-  if (App.isWindows) {
-    // Report to the monitor thread that the app is running
-    // https://github.com/venera-app/venera/issues/343
-    Timer.periodic(const Duration(seconds: 1), (_) {
-      const methodChannel = MethodChannel('venera/method_channel');
-      methodChannel.invokeMethod("heartBeat");
-    });
-  }
 }
 
-void _checkOldConfigs() {
+Future<void> _checkOldConfigs() async {
+  var saveSettings = false;
   if (appdata.settings['searchSources'] == null) {
     appdata.settings['searchSources'] = ComicSource.all()
         .where((e) => e.searchPageData != null)
         .map((e) => e.key)
         .toList();
+    saveSettings = true;
   }
 
   if (appdata.implicitData['webdavAutoSync'] == null) {
@@ -101,7 +91,7 @@ void _checkOldConfigs() {
   if (App.isAndroid) {
     final sourceListUrl = appdata.settings['comicSourceListUrl'].toString();
     const androidSourceListUrl =
-        "https://gcore.jsdelivr.net/gh/Taototo/venera-comic-sources@c16221a/comic_index.json";
+        "https://gcore.jsdelivr.net/gh/Taototo/venera-comic-sources@main/comic_index.json";
     if (sourceListUrl != androidSourceListUrl &&
         (sourceListUrl.contains("git.nyne.dev") ||
             sourceListUrl.contains("Taototo/venera-comic-sources") ||
@@ -110,15 +100,46 @@ void _checkOldConfigs() {
             sourceListUrl ==
                 "https://cdn.jsdelivr.net/gh/Taototo/venera-comic-sources@main/comic_index.json")) {
       appdata.settings['comicSourceListUrl'] = androidSourceListUrl;
-      appdata.saveData();
+      saveSettings = true;
     }
-  } else if (appdata.settings['comicSourceListUrl']
-      .toString()
-      .contains("git.nyne.dev")) {
-    // Keep the original migration for non-Android builds.
-    appdata.settings['comicSourceListUrl'] =
-        "https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json";
-    appdata.saveData();
+  }
+
+  const retiredSourceKey = 'private_55comics';
+  const retiredSourceNames = {'55漫画', '55漫畫', '55 Comics'};
+  for (final settingKey in [
+    'searchSources',
+    'explore_pages',
+    'category_pages',
+  ]) {
+    final value = appdata.settings[settingKey];
+    if (value is List) {
+      final oldLength = value.length;
+      value.removeWhere(
+        (item) => item == retiredSourceKey || retiredSourceNames.contains(item),
+      );
+      saveSettings = saveSettings || oldLength != value.length;
+    }
+  }
+  if (appdata.settings['defaultSearchTarget'] == retiredSourceKey) {
+    appdata.settings['defaultSearchTarget'] = null;
+    saveSettings = true;
+  }
+
+  final sourceDirectory = Directory(App.dataPath + '/comic_source');
+  var removedSourceFiles = false;
+  for (final fileName in ['$retiredSourceKey.js', '$retiredSourceKey.data']) {
+    final file = File(sourceDirectory.path + '/' + fileName);
+    if (await file.exists()) {
+      await file.delete();
+      removedSourceFiles = true;
+    }
+  }
+  ComicSourceManager().remove(retiredSourceKey);
+  if (removedSourceFiles) {
+    await ComicSourceManager().reload();
+  }
+  if (saveSettings) {
+    await appdata.saveData();
   }
 }
 
